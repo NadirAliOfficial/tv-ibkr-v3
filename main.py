@@ -1,3 +1,25 @@
+"""
+TV-IBKR-v3 Milestone 1: Core Ingestion & Security
+Single-file implementation for testing and delivery
+
+Requirements:
+- Python 3.11+
+- pip install fastapi uvicorn python-dotenv pydantic pydantic-settings
+
+Setup:
+1. Create .env file with: WEBHOOK_SECRET=your-secret-key-here
+2. Run: uvicorn main:app --reload
+3. Test: See test_webhook() function at bottom
+
+Deliverables:
+✓ TradingView webhook endpoint with HMAC verification
+✓ Timestamp validation (±30s window)
+✓ Schema validation with Pydantic
+✓ Replay protection via idempotency keys
+✓ Health endpoints for monitoring
+✓ Cloudflare-ready configuration
+✓ Structured logging with correlation IDs
+"""
 
 import hashlib
 import hmac
@@ -290,7 +312,11 @@ async def webhook_handler(request: Request):
         signature = payload_dict.get("signature", "")
         
         # STEP 1: HMAC Verification (REQ-002)
-        if not verify_hmac_signature(raw_body, signature, settings.webhook_secret):
+        # Remove signature from payload for HMAC calculation
+        payload_without_sig = {k: v for k, v in payload_dict.items() if k != "signature"}
+        payload_for_hmac = json.dumps(payload_without_sig, separators=(',', ':')).encode()
+        
+        if not verify_hmac_signature(payload_for_hmac, signature, settings.webhook_secret):
             log_with_context(
                 "warning",
                 "HMAC verification failed",
