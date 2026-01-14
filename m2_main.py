@@ -27,11 +27,12 @@ class Settings(BaseSettings):
     webhook_secret: str = Field(..., description="HMAC secret for webhook verification")
     webhook_timestamp_tolerance_seconds: int = Field(default=30)
     
-    # M2: IBKR Connection
+    # M2: IBKR Connection (TWS)
     ibkr_host: str = Field(default="127.0.0.1")
-    ibkr_port: int = Field(default=4001, description="4001=paper, 4002=live")
+    ibkr_port: int = Field(default=7497, description="7497=paper, 7496=live (TWS)")
     ibkr_client_id: int = Field(default=1)
     ibkr_account: Optional[str] = Field(default=None)
+
     
     # M2: Risk Limits
     max_position_size: int = Field(default=100)
@@ -247,22 +248,34 @@ class IBKRClient:
         
         try:
             from ib_insync import IB, util
+            
+            # CRITICAL FIX: Patch asyncio for uvicorn compatibility
+            util.patchAsyncio()
+            
             self.ib = IB()
             
-            await self.circuit_breaker.call(
-                self.ib.connectAsync,
+            log_with_context("info", f"Connecting to IBKR at {settings.ibkr_host}:{settings.ibkr_port}...")
+            
+            # Use regular connect, not circuit breaker (it causes loop issues)
+            await self.ib.connectAsync(
                 settings.ibkr_host,
                 settings.ibkr_port,
-                clientId=settings.ibkr_client_id
+                clientId=settings.ibkr_client_id,
+                timeout=20
             )
             
             self.connected = True
-            log_with_context("info", "IBKR connected successfully", 
-                           host=settings.ibkr_host, port=settings.ibkr_port)
+            log_with_context("info", "✅ IBKR connected successfully", 
+                        host=settings.ibkr_host, 
+                        port=settings.ibkr_port,
+                        account=self.ib.managedAccounts())
+            
         except Exception as e:
             log_with_context("error", f"IBKR connection failed: {e}")
             self.connected = False
-            if settings.enable_order_execution and not settings.dry_run:
+            
+            # In dry_run, don't crash - just log the error
+            if not settings.dry_run:
                 raise
     
     async def disconnect(self):
@@ -501,13 +514,23 @@ def verify_hmac_signature(payload: bytes, signature: str, secret: str) -> bool:
 # ============================================================================
 # FASTAPI APPLICATION
 # ============================================================================
+async def connect_ibkr_background():
+    """Connect to IBKR in background after server starts"""
+    await asyncio.sleep(2)  # Wait for server to fully start
+    try:
+        await ibkr_client.connect()
+    except Exception as e:
+        log_with_context("error", f"Background IBKR connection failed: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    # Startup - DON'T connect IBKR here!
     log_with_context("info", "Application starting...")
+    
+    # Start IBKR connection in background
     if settings.enable_order_execution and not settings.dry_run:
-        await ibkr_client.connect()
+        asyncio.create_task(connect_ibkr_background())
+    
     log_with_context("info", "Application ready")
     
     yield

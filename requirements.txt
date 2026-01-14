@@ -3,3 +3,5 @@ uvicorn
 pydantic
 pydantic-settings
 python-dotenv
+ib-insync
+gunicorn
