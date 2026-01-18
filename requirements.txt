@@ -2,6 +2,9 @@ fastapi
 uvicorn
 pydantic
 pydantic-settings
+aiosqlite
+ib_insync
+python-telegram-bot
+nest_asyncio
 python-dotenv
-ib-insync
 gunicorn

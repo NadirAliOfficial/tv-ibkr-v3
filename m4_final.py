@@ -1,18 +1,3 @@
-"""
-TV-IBKR-v3 COMPLETE - ALL 4 MILESTONES
-Production-Ready TradingView to Interactive Brokers Integration
-
-✅ Milestone 1: Core Ingestion & Security
-✅ Milestone 2: Risk Engine & Order Execution  
-✅ Milestone 3: Persistence & Reconciliation
-✅ Milestone 4: Admin, Testing & Handoff
-
-Requirements:
-pip install fastapi uvicorn python-dotenv pydantic pydantic-settings ib-insync python-telegram-bot nest-asyncio aiosqlite
-
-Run:
-uvicorn final_main_complete:app --host 0.0.0.0 --port 8000
-"""
 
 import asyncio
 import hashlib
