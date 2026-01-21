@@ -762,11 +762,7 @@ class IBKRClient:
             accounts = self.ib.managedAccounts()
             log_info("🎉 IBKR CONNECTED!", accounts=accounts)
 
-            # ✅ Alert on connection restore (REQ-062)
-            asyncio.create_task(alerter.send(
-                f"✅ IBKR CONNECTION RESTORED\n"
-                f"Accounts: {accounts}"
-            ))
+    
                         
         except Exception as e:
             log_error(f"IBKR connection failed", error=str(e))
@@ -774,12 +770,6 @@ class IBKRClient:
                 self.connected = False
                 self.circuit_breaker.record_failure()
             
-            # ✅ Alert on connection loss (REQ-062)
-            asyncio.create_task(alerter.send(
-                f"❌ IBKR CONNECTION LOST\n"
-                f"Error: {str(e)}\n"
-                f"Attempting reconnect..."
-            ))
     
     async def connect(self):
         """Start IBKR connection in background thread"""
