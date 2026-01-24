@@ -4,29 +4,29 @@ import asyncio
 
 async def test_connection():
     ib = IB()
-    
+
     try:
         print("Attempting to connect to TWS...")
         print("Host: 127.0.0.1")
         print("Port: 7497")
         print("Client ID: 1")
-        
+
         await ib.connectAsync('127.0.0.1', 7497, clientId=1)
-        
+
         print("✅ Connected successfully!")
-        
+
         # Get account info
         account = ib.managedAccounts()[0]
         print(f"Account: {account}")
-        
+
         # Get account values
         values = ib.accountValues()
         print(f"Account values loaded: {len(values)} items")
-        
+
         # Disconnect
         ib.disconnect()
         print("✅ Disconnected successfully")
-        
+
     except Exception as e:
         print(f"❌ Connection failed: {e}")
         print("\nTroubleshooting:")
