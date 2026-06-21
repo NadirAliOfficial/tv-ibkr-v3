@@ -737,7 +737,7 @@ class IBKRClient:
             try:
                 import nest_asyncio
                 nest_asyncio.apply()
-            except:
+            except Exception:
                 pass
             
             util.patchAsyncio()
@@ -789,7 +789,7 @@ class IBKRClient:
         if self.ib and self.connected:
             try:
                 self.ib.disconnect()
-            except:
+            except Exception:
                 pass
             self.connected = False
     
@@ -958,7 +958,7 @@ class TelegramAlerter:
             try:
                 from telegram import Bot
                 self.bot = Bot(token=settings.telegram_bot_token)
-            except:
+            except Exception:
                 self.enabled = False
     
     async def send(self, message: str):
