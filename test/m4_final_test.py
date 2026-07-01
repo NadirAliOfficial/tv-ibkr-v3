@@ -14,15 +14,15 @@ from pathlib import Path
 def load_env_file():
     """Load .env file and return configuration"""
     env_path = Path(__file__).parent.parent / '.env'
-    
+
     config = {
         'WEBHOOK_SECRET': None,
         'ADMIN_API_KEY': None
     }
-    
+
     if not env_path.exists():
         env_path = Path(__file__).parent / '.env'
-    
+
     if env_path.exists():
         with open(env_path, encoding="utf-8") as f:
             for line in f:
@@ -33,7 +33,7 @@ def load_env_file():
                     value = value.strip().strip('"').strip("'")
                     if key in config:
                         config[key] = value
-    
+
     return config
 
 config = load_env_file()
@@ -66,12 +66,12 @@ class TestResult:
         self.name = name
         self.passed = False
         self.message = ""
-        
+
     def pass_test(self, message: str = ""):
         self.passed = True
         self.message = message
         print(f"✅ {self.name}: PASSED {message}")
-        
+
     def fail_test(self, message: str):
         self.passed = False
         self.message = message
@@ -87,17 +87,17 @@ def create_webhook_payload(ticker: str, action: str, quantity: int = 10, order_t
         "strategy": "test_strategy",
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
-    
+
     if order_type == "STOP":
         payload["limit_price"] = 150.0
-    
+
     payload_json = json.dumps(payload, separators=(',', ':'))
     signature = hmac.new(
         WEBHOOK_SECRET.encode(),
         payload_json.encode(),
         hashlib.sha256
     ).hexdigest()
-    
+
     payload['signature'] = signature
     return payload
 
@@ -126,7 +126,7 @@ def test_m1_webhook_valid():
     try:
         payload = create_webhook_payload("TEST1", "BUY", 5)
         response = requests.post(f"{BASE_URL}/webhook", json=payload, timeout=10)
-        
+
         if response.status_code in [200, 409]:
             data = response.json()
             if 'correlation_id' in data:
@@ -144,9 +144,9 @@ def test_m1_invalid_signature():
     try:
         payload = create_webhook_payload("TEST", "BUY", 10)
         payload['signature'] = "invalid_sig"
-        
+
         response = requests.post(f"{BASE_URL}/webhook", json=payload, timeout=5)
-        
+
         if response.status_code == 401:
             result.pass_test()
         else:
@@ -166,7 +166,7 @@ def test_m1_old_timestamp():
             "strategy": "test",
             "timestamp": (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
         }
-        
+
         payload_json = json.dumps(payload, separators=(',', ':'))
         signature = hmac.new(
             WEBHOOK_SECRET.encode(),
@@ -174,10 +174,10 @@ def test_m1_old_timestamp():
             hashlib.sha256
         ).hexdigest()
         payload['signature'] = signature
-        
+
         # FIXED: Increased timeout from 5 to 35 seconds
         response = requests.post(f"{BASE_URL}/webhook", json=payload, timeout=35)
-        
+
         if response.status_code == 400:
             result.pass_test()
         else:
@@ -194,7 +194,7 @@ def test_m1_backpressure():
             headers={"X-API-Key": ADMIN_API_KEY},
             timeout=5
         )
-        
+
         if status.status_code == 200:
             result.pass_test("System operational (backpressure ready)")
         else:
@@ -215,12 +215,12 @@ def test_m2_system_status():
             headers={"X-API-Key": ADMIN_API_KEY},
             timeout=5
         )
-        
+
         if response.status_code == 200:
             data = response.json()
-            required = ['trading_enabled', 'kill_switch_active', 'ibkr_connected', 
+            required = ['trading_enabled', 'kill_switch_active', 'ibkr_connected',
                        'daily_trade_count', 'positions', 'daily_pnl']
-            
+
             missing = [f for f in required if f not in data]
             if not missing:
                 result.pass_test(f"IBKR: {data.get('ibkr_connected')}, PnL: ${data.get('daily_pnl', 0):.2f}")
@@ -244,7 +244,7 @@ def test_m2_kill_switch():
             timeout=15
         )
         time.sleep(1)
-        
+
         # Activate
         activate_resp = requests.post(
             f"{BASE_URL}/admin/kill",
@@ -252,22 +252,22 @@ def test_m2_kill_switch():
             json={"reason": "Test", "actor": "TEST"},
             timeout=15
         )
-        
+
         if activate_resp.status_code != 200:
             result.fail_test(f"Activate failed: {activate_resp.status_code}")
             return result
-        
+
         # Verify
         status = requests.get(
             f"{BASE_URL}/admin/status",
             headers={"X-API-Key": ADMIN_API_KEY},
             timeout=15
         ).json()
-        
+
         if not status.get('kill_switch_active'):
             result.fail_test("Not active after activation")
             return result
-        
+
         # Deactivate
         deactivate_resp = requests.post(
             f"{BASE_URL}/admin/resume",
@@ -275,7 +275,7 @@ def test_m2_kill_switch():
             json={"reason": "Test done", "actor": "TEST"},
             timeout=15
         )
-        
+
         if deactivate_resp.status_code == 200:
             result.pass_test()
         else:
@@ -295,11 +295,11 @@ def test_m2_position_limit():
             json={"reason": "Test", "actor": "TEST"},
             timeout=15
         )
-        
+
         # Try large position
         payload = create_webhook_payload("BIGLIMIT", "BUY", 10000)
         response = requests.post(f"{BASE_URL}/webhook", json=payload, timeout=35)
-        
+
         if response.status_code in [200, 409]:
             result.pass_test("Large order accepted (will be risk-checked)")
         else:
@@ -313,7 +313,7 @@ def test_m2_stop_orders():
     try:
         payload = create_webhook_payload("STOPTEST", "BUY", 10, order_type="STOP")
         response = requests.post(f"{BASE_URL}/webhook", json=payload, timeout=10)
-        
+
         if response.status_code in [200, 409]:
             result.pass_test("STOP order accepted")
         else:
@@ -327,7 +327,7 @@ def test_m2_close_action():
     try:
         payload = create_webhook_payload("CLOSETEST", "CLOSE", 10)
         response = requests.post(f"{BASE_URL}/webhook", json=payload, timeout=10)
-        
+
         if response.status_code in [200, 409]:
             result.pass_test("CLOSE action accepted")
         else:
@@ -344,23 +344,23 @@ def test_m3_trade_logging():
     result = TestResult("M3: Trade Logging")
     try:
         time.sleep(2)  # Wait for async processing
-        
+
         response = requests.get(
             f"{BASE_URL}/admin/trades?limit=10",
             headers={"X-API-Key": ADMIN_API_KEY},
             timeout=5
         )
-        
+
         if response.status_code == 200:
             data = response.json()
             trades = data.get('trades', [])
-            
+
             # Check for enhanced fields
             has_new_fields = False
             if trades:
                 trade = trades[0]
                 has_new_fields = 'webhook_received_at' in trade and 'raw_payload' in trade
-            
+
             if has_new_fields:
                 result.pass_test(f"{len(trades)} trades with timing & raw payload")
             else:
@@ -379,7 +379,7 @@ def test_m3_expected_positions():
             headers={"X-API-Key": ADMIN_API_KEY},
             timeout=5
         )
-        
+
         if response.status_code == 200:
             data = response.json()
             if 'positions' in data:
@@ -402,11 +402,11 @@ def test_m3_reconciliation():
             headers={"X-API-Key": ADMIN_API_KEY},
             timeout=15
         )
-        
+
         if response.status_code == 200:
             data = response.json()
             required = ['timestamp', 'status', 'expected_positions', 'actual_positions']
-            
+
             if all(f in data for f in required):
                 result.pass_test(f"Status: {data['status']}")
             else:
@@ -425,7 +425,7 @@ def test_m3_audit_log():
             headers={"X-API-Key": ADMIN_API_KEY},
             timeout=5
         )
-        
+
         if response.status_code == 200:
             data = response.json()
             logs = data.get('logs', [])
@@ -444,7 +444,7 @@ def test_m3_admin_audit():
             headers={"X-API-Key": ADMIN_API_KEY},
             timeout=5
         )
-        
+
         if response.status_code == 200:
             data = response.json()
             logs = data.get('logs', [])
@@ -464,7 +464,7 @@ def test_m4_admin_auth():
     try:
         # Without key
         response = requests.get(f"{BASE_URL}/admin/status", timeout=5)
-        
+
         if response.status_code == 422:
             # With key
             response = requests.get(
@@ -472,7 +472,7 @@ def test_m4_admin_auth():
                 headers={"X-API-Key": ADMIN_API_KEY},
                 timeout=5
             )
-            
+
             if response.status_code == 200:
                 result.pass_test()
             else:
@@ -491,7 +491,7 @@ def test_m4_reconciliation_history():
             headers={"X-API-Key": ADMIN_API_KEY},
             timeout=5
         )
-        
+
         if response.status_code == 200:
             data = response.json()
             if 'history' in data:
@@ -512,7 +512,7 @@ def test_m4_reset_limits():
             headers={"X-API-Key": ADMIN_API_KEY},
             timeout=5
         )
-        
+
         if response.status_code == 200:
             data = response.json()
             if data.get('status') == 'reset':
@@ -533,7 +533,7 @@ def test_m4_debug_recent():
             headers={"X-API-Key": ADMIN_API_KEY},
             timeout=5
         )
-        
+
         if response.status_code == 200:
             data = response.json()
             if 'trades' in data:
@@ -555,11 +555,11 @@ def test_m4_pnl_endpoint():
             headers={"X-API-Key": ADMIN_API_KEY},
             timeout=5
         )
-        
+
         if response.status_code == 200:
             data = response.json()
             required = ['date', 'total_pnl', 'total_trades']
-            
+
             if all(f in data for f in required):
                 result.pass_test(f"PnL: ${data['total_pnl']:.2f}, Trades: {data['total_trades']}")
             else:
@@ -581,9 +581,9 @@ def run_all_tests():
     print(f"Base URL: {BASE_URL}")
     print(f"Time: {datetime.now(timezone.utc).isoformat()}")
     print("=" * 70)
-    
+
     results = []
-    
+
     # M1: Security & Ingestion
     print("\n📋 MILESTONE 1: Security & Ingestion")
     print("-" * 70)
@@ -592,7 +592,7 @@ def run_all_tests():
     results.append(test_m1_invalid_signature())
     results.append(test_m1_old_timestamp())
     results.append(test_m1_backpressure())
-    
+
     # M2: Risk Engine & Execution
     print("\n📋 MILESTONE 2: Risk Engine & Execution")
     print("-" * 70)
@@ -601,7 +601,7 @@ def run_all_tests():
     results.append(test_m2_position_limit())
     results.append(test_m2_stop_orders())
     results.append(test_m2_close_action())
-    
+
     # M3: Persistence & Reconciliation
     print("\n📋 MILESTONE 3: Persistence & Reconciliation")
     print("-" * 70)
@@ -610,7 +610,7 @@ def run_all_tests():
     results.append(test_m3_reconciliation())
     results.append(test_m3_audit_log())
     results.append(test_m3_admin_audit())
-    
+
     # M4: Admin & Monitoring
     print("\n📋 MILESTONE 4: Admin & Monitoring")
     print("-" * 70)
@@ -619,31 +619,31 @@ def run_all_tests():
     results.append(test_m4_reset_limits())
     results.append(test_m4_debug_recent())
     results.append(test_m4_pnl_endpoint())
-    
+
     # Summary
     print("\n" + "=" * 70)
     print("TEST SUMMARY")
     print("=" * 70)
-    
+
     passed = sum(1 for r in results if r.passed)
     failed = sum(1 for r in results if not r.passed)
     total = len(results)
-    
+
     print(f"Total Tests: {total}")
     print(f"✅ Passed: {passed}")
     print(f"❌ Failed: {failed}")
     print(f"Success Rate: {(passed/total)*100:.1f}%")
-    
+
     if failed > 0:
         print("\nFailed Tests:")
         for r in results:
             if not r.passed:
                 print(f"  ❌ {r.name}: {r.message}")
-    
+
     print("\n" + "=" * 70)
     print("NOTE: Timeouts increased to allow for IBKR execution delays")
     print("=" * 70)
-    
+
     return passed == total
 
 if __name__ == "__main__":
