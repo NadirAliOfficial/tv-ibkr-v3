@@ -68,7 +68,7 @@ def send_webhook_with_timestamp(ticker, action, quantity, timestamp):
     print(f"📥 Response [{response.status_code}]:")
     try:
         print(json.dumps(response.json(), indent=2))
-    except:
+    except Exception:
         print(response.text)
 
     return response
