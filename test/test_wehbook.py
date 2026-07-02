@@ -18,7 +18,7 @@ BASE_URL = "http://localhost:8000"
 def send_webhook(ticker="AAPL", action="BUY", quantity=10, timestamp_offset_seconds=0):
     """
     Send a properly signed webhook to the API.
-    
+
     Args:
         ticker: Stock symbol
         action: BUY, SELL, or CLOSE
@@ -41,7 +41,7 @@ def send_webhook_with_timestamp(ticker, action, quantity, timestamp):
         "order_type": "MARKET",
         "timestamp": timestamp.isoformat()
     }
-    
+
     # Calculate HMAC signature over payload WITHOUT signature field
     payload_json = json.dumps(payload_without_sig, separators=(',', ':'))
     signature = hmac.new(
@@ -49,28 +49,28 @@ def send_webhook_with_timestamp(ticker, action, quantity, timestamp):
         payload_json.encode(),
         hashlib.sha256
     ).hexdigest()
-    
+
     # Now add signature to create final payload
     payload_without_sig["signature"] = signature
     final_json = json.dumps(payload_without_sig, separators=(',', ':'))
-    
+
     print(f"\n📤 Sending webhook: {action} {quantity} {ticker}")
     print(f"   Timestamp: {timestamp.isoformat()}")
     print(f"   Signature: {signature[:16]}...")
-    
+
     # Send as raw JSON string (not json= parameter!)
     response = requests.post(
         f"{BASE_URL}/webhook",
         data=final_json,  # Use data= not json=
         headers={"Content-Type": "application/json"}
     )
-    
+
     print(f"📥 Response [{response.status_code}]:")
     try:
         print(json.dumps(response.json(), indent=2))
     except:
         print(response.text)
-    
+
     return response
 
 def test_valid_webhook():
@@ -87,15 +87,15 @@ def test_duplicate_webhook():
     print("\n" + "="*70)
     print("TEST 2: Duplicate Webhook (Same idempotency key)")
     print("="*70)
-    
+
     # Use a fixed timestamp for both requests
     fixed_timestamp = datetime.now(timezone.utc)
-    
+
     # First webhook
     print("Sending first webhook...")
     response1 = send_webhook_with_timestamp("TSLA", "SELL", 5, fixed_timestamp)
     assert response1.status_code == 200
-    
+
     # Duplicate (same ticker, action, timestamp = same idempotency key)
     print("Sending duplicate webhook (same timestamp)...")
     response2 = send_webhook_with_timestamp("TSLA", "SELL", 5, fixed_timestamp)
@@ -107,7 +107,7 @@ def test_invalid_signature():
     print("\n" + "="*70)
     print("TEST 3: Invalid Signature")
     print("="*70)
-    
+
     payload = {
         "ticker": "MSFT",
         "action": "BUY",
@@ -116,12 +116,12 @@ def test_invalid_signature():
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "signature": "invalid_signature_12345"
     }
-    
+
     response = requests.post(
         f"{BASE_URL}/webhook",
         json=payload
     )
-    
+
     print(f"📥 Response [{response.status_code}]:")
     print(json.dumps(response.json(), indent=2))
     assert response.status_code == 401, f"Expected 401, got {response.status_code}"
@@ -132,7 +132,7 @@ def test_stale_webhook():
     print("\n" + "="*70)
     print("TEST 4: Stale Webhook (>30 seconds old)")
     print("="*70)
-    
+
     # Send webhook with timestamp 60 seconds in the past
     response = send_webhook("GOOGL", "BUY", 15, timestamp_offset_seconds=-60)
     assert response.status_code == 400, f"Expected 400, got {response.status_code}"
@@ -143,7 +143,7 @@ def test_future_webhook():
     print("\n" + "="*70)
     print("TEST 5: Future Webhook (>5 seconds ahead)")
     print("="*70)
-    
+
     # Send webhook with timestamp 10 seconds in the future
     response = send_webhook("AMZN", "SELL", 8, timestamp_offset_seconds=10)
     assert response.status_code == 400, f"Expected 400, got {response.status_code}"
@@ -154,7 +154,7 @@ def test_invalid_schema():
     print("\n" + "="*70)
     print("TEST 6: Invalid Schema (missing required field)")
     print("="*70)
-    
+
     # Create payload missing required field (ticker) but with valid signature
     payload_without_sig = {
         "action": "BUY",  # Missing ticker - this should fail schema validation
@@ -162,7 +162,7 @@ def test_invalid_schema():
         "order_type": "MARKET",
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
-    
+
     # Calculate valid HMAC signature
     payload_json = json.dumps(payload_without_sig, separators=(',', ':'))
     signature = hmac.new(
@@ -170,18 +170,18 @@ def test_invalid_schema():
         payload_json.encode(),
         hashlib.sha256
     ).hexdigest()
-    
+
     payload_without_sig["signature"] = signature
     final_json = json.dumps(payload_without_sig, separators=(',', ':'))
-    
+
     print(f"📤 Sending invalid payload (missing 'ticker' field)")
-    
+
     response = requests.post(
         f"{BASE_URL}/webhook",
         data=final_json,
         headers={"Content-Type": "application/json"}
     )
-    
+
     print(f"📥 Response [{response.status_code}]:")
     print(json.dumps(response.json(), indent=2))
     assert response.status_code == 422, f"Expected 422, got {response.status_code}"
@@ -192,19 +192,19 @@ def test_health_endpoints():
     print("\n" + "="*70)
     print("TEST 7: Health Check Endpoints")
     print("="*70)
-    
+
     # Health check
     response = requests.get(f"{BASE_URL}/health")
     print(f"GET /health: {response.status_code}")
     print(json.dumps(response.json(), indent=2))
     assert response.status_code == 200
-    
+
     # Ready check
     response = requests.get(f"{BASE_URL}/ready")
     print(f"\nGET /ready: {response.status_code}")
     print(json.dumps(response.json(), indent=2))
     assert response.status_code == 200
-    
+
     print("✅ PASS: Health endpoints working")
 
 if __name__ == "__main__":
@@ -213,7 +213,7 @@ if __name__ == "__main__":
     print("="*70)
     print(f"Testing against: {BASE_URL}")
     print(f"Webhook secret: {SECRET[:8]}...")
-    
+
     try:
         # Run all tests
         test_valid_webhook()
@@ -223,7 +223,7 @@ if __name__ == "__main__":
         test_future_webhook()
         test_invalid_schema()
         test_health_endpoints()
-        
+
         print("\n" + "="*70)
         print("🎉 ALL TESTS PASSED!")
         print("="*70)
@@ -235,7 +235,7 @@ if __name__ == "__main__":
         print("  ✓ Schema validation")
         print("  ✓ Health check endpoints")
         print("  ✓ Structured logging with correlation IDs")
-        
+
     except AssertionError as e:
         print(f"\n❌ TEST FAILED: {e}")
         exit(1)
