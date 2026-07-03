@@ -35,42 +35,42 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     """Application configuration"""
-    
+
     # M1: Security
     webhook_secret: str
     webhook_timestamp_tolerance_seconds: int = 30
-    
+
     # M2: IBKR
     ibkr_host: str = "127.0.0.1"
     ibkr_port: int = 7497
     ibkr_client_id: int = 1
-    
+
     # M2: Risk Limits
     max_position_size: int = 100
     max_daily_loss: float = 500.0
     max_portfolio_exposure: float = 0.25
     max_daily_trades: int = 50
-    
+
     # M2: Circuit Breaker
     circuit_breaker_threshold: int = 3
     circuit_breaker_timeout: int = 60
-    
+
     # M2: Telegram
     telegram_bot_token: Optional[str] = None
     telegram_chat_id: Optional[str] = None
-    
+
     # M2: Feature Flags
     trading_enabled: bool = True
     dry_run: bool = False
     enable_risk_engine: bool = True
     enable_order_execution: bool = True
     enable_telegram: bool = False
-    
+
     # Admin
     admin_api_key: str = "admin-secret-key"
-    
+
     log_level: str = "INFO"
-    
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 settings = Settings()
@@ -106,7 +106,7 @@ class WebhookPayload(BaseModel):
     strategy: Optional[str] = None
     timestamp: datetime
     signature: str
-    
+
     @field_validator('timestamp')
     @classmethod
     def timestamp_must_be_utc(cls, v: datetime) -> datetime:
@@ -156,24 +156,24 @@ class ReplayGuard:
         self.tolerance = timedelta(seconds=tolerance_seconds)
         self.future_tolerance = timedelta(seconds=5)
         self.seen_keys = set()
-    
+
     def validate_timestamp(self, webhook_timestamp: datetime) -> None:
         now = datetime.now(timezone.utc)
-        
+
         if webhook_timestamp < now - self.tolerance:
             age = (now - webhook_timestamp).total_seconds()
             raise HTTPException(
                 status_code=400,
                 detail=f"Webhook too old: {age:.1f}s ago (max {self.tolerance.total_seconds()}s)"
             )
-        
+
         if webhook_timestamp > now + self.future_tolerance:
             raise HTTPException(status_code=400, detail="Webhook timestamp in future")
-    
+
     def generate_idempotency_key(self, ticker: str, action: str, timestamp: datetime) -> str:
         payload = f"{ticker}:{action}:{timestamp.isoformat()}"
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
-    
+
     def check_duplicate(self, idempotency_key: str) -> bool:
         if idempotency_key in self.seen_keys:
             return True
@@ -193,32 +193,32 @@ class CircuitBreaker:
         self.failures = 0
         self.last_failure_time: Optional[datetime] = None
         self.is_open = False
-    
+
     def record_success(self):
         self.failures = 0
         if self.is_open:
             log_info("Circuit breaker closed - service recovered")
             self.is_open = False
-    
+
     def record_failure(self):
         self.failures += 1
         self.last_failure_time = datetime.now(timezone.utc)
-        
+
         if self.failures >= self.threshold and not self.is_open:
             self.is_open = True
             log_error(f"Circuit breaker OPENED after {self.failures} failures")
-    
+
     def can_attempt(self) -> bool:
         if not self.is_open:
             return True
-        
+
         # Check if timeout expired
         if datetime.now(timezone.utc) - self.last_failure_time > timedelta(seconds=self.timeout):
             log_info("Circuit breaker attempting recovery")
             self.is_open = False
             self.failures = 0
             return True
-        
+
         return False
 
 # ============================================================================
@@ -227,7 +227,7 @@ class CircuitBreaker:
 
 class IBKRClient:
     """IBKR client with threading to avoid asyncio conflicts"""
-    
+
     def __init__(self):
         self.ib = None
         self.connected = False
@@ -237,29 +237,29 @@ class IBKRClient:
             settings.circuit_breaker_threshold,
             settings.circuit_breaker_timeout
         )
-    
+
     def _connect_in_thread(self):
         """Run IBKR connection in separate thread with own event loop"""
         try:
             # Create new event loop for this thread
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            
+
             from ib_insync import IB, util
-            
+
             # Apply patches
             try:
                 import nest_asyncio
                 nest_asyncio.apply()
             except Exception:
                 pass
-            
+
             util.patchAsyncio()
-            
+
             self.ib = IB()
-            
+
             log_info(f"Connecting to IBKR", host=settings.ibkr_host, port=settings.ibkr_port)
-            
+
             # Connect using this thread's event loop
             loop.run_until_complete(
                 self.ib.connectAsync(
@@ -269,36 +269,36 @@ class IBKRClient:
                     timeout=20
                 )
             )
-            
+
             with self.connection_lock:
                 self.connected = True
                 self.circuit_breaker.record_success()
-            
+
             accounts = self.ib.managedAccounts()
             log_info("🎉 IBKR CONNECTED!", accounts=accounts)
-            
+
         except Exception as e:
             log_error(f"IBKR connection failed", error=str(e))
             with self.connection_lock:
                 self.connected = False
                 self.circuit_breaker.record_failure()
-    
+
     async def connect(self):
         """Start IBKR connection in background thread"""
         if not settings.enable_order_execution:
             log_info("IBKR execution disabled")
             return
-        
+
         # Start connection in daemon thread
         self.connection_thread = threading.Thread(
             target=self._connect_in_thread,
             daemon=True
         )
         self.connection_thread.start()
-        
+
         # Wait a bit for connection
         await asyncio.sleep(3)
-    
+
     async def disconnect(self):
         if self.ib and self.connected:
             try:
@@ -306,15 +306,15 @@ class IBKRClient:
             except Exception:
                 pass
             self.connected = False
-    
+
     async def get_account_value(self) -> float:
         if not self.connected or settings.dry_run:
             return 100000.0
-        
+
         try:
             if not self.circuit_breaker.can_attempt():
                 return 100000.0
-            
+
             account_values = self.ib.accountValues()
             for av in account_values:
                 if av.tag == 'NetLiquidation':
@@ -325,11 +325,11 @@ class IBKRClient:
             self.circuit_breaker.record_failure()
             log_error("Failed to get account value", error=str(e))
             return 100000.0
-    
-    async def place_order(self, ticker: str, action: str, quantity: int, 
+
+    async def place_order(self, ticker: str, action: str, quantity: int,
                          order_type: str = "MARKET", limit_price: Optional[float] = None) -> OrderResult:
         """Place order on IBKR"""
-        
+
         if settings.dry_run:
             log_info(f"DRY RUN: {action} {quantity} {ticker}")
             return OrderResult(
@@ -338,33 +338,33 @@ class IBKRClient:
                 fill_price=150.0,
                 fill_quantity=quantity
             )
-        
+
         if not self.connected:
             return OrderResult(success=False, error="IBKR not connected")
-        
+
         if not self.circuit_breaker.can_attempt():
             return OrderResult(success=False, error="Circuit breaker open")
-        
+
         try:
             from ib_insync import Stock, MarketOrder, LimitOrder
-            
+
             contract = Stock(ticker, 'SMART', 'USD')
-            
+
             if order_type == "MARKET":
                 order = MarketOrder(action, quantity)
             elif order_type == "LIMIT":
                 order = LimitOrder(action, quantity, limit_price)
             else:
                 return OrderResult(success=False, error=f"Unsupported order type: {order_type}")
-            
+
             trade = self.ib.placeOrder(contract, order)
-            
+
             # Wait for fill (30s timeout)
             for _ in range(30):
                 await asyncio.sleep(1)
                 if trade.isDone():
                     break
-            
+
             if trade.orderStatus.status == 'Filled':
                 self.circuit_breaker.record_success()
                 return OrderResult(
@@ -375,7 +375,7 @@ class IBKRClient:
                 )
             else:
                 return OrderResult(success=False, error=f"Order status: {trade.orderStatus.status}")
-        
+
         except Exception as e:
             self.circuit_breaker.record_failure()
             log_error("Order placement failed", error=str(e))
@@ -389,32 +389,32 @@ ibkr_client = IBKRClient()
 
 class TelegramAlerter:
     def __init__(self):
-        self.enabled = (settings.enable_telegram and 
-                       settings.telegram_bot_token and 
+        self.enabled = (settings.enable_telegram and
+                       settings.telegram_bot_token and
                        settings.telegram_chat_id)
         self.bot = None
-        
+
         if self.enabled:
             try:
                 from telegram import Bot
                 self.bot = Bot(token=settings.telegram_bot_token)
             except Exception:
                 self.enabled = False
-    
+
     async def send(self, message: str):
         if not self.enabled:
             log_info(f"Telegram: {message}")
             return
-        
+
         try:
             await self.bot.send_message(chat_id=settings.telegram_chat_id, text=message)
         except Exception as e:
             log_error("Telegram send failed", error=str(e))
-    
+
     async def send_fill_alert(self, ticker: str, action: str, quantity: int, price: float):
         emoji = "🟢" if action == "BUY" else "🔴"
         await self.send(f"{emoji} FILL: {action} {quantity} {ticker} @ ${price:.2f}")
-    
+
     async def send_rejection(self, ticker: str, action: str, reason: str):
         await self.send(f"❌ REJECTED: {action} {ticker}\n{reason}")
 
@@ -432,7 +432,7 @@ class RiskEngine:
         self.daily_trade_count = 0
         self.positions: Dict[str, int] = {}
         self.last_reset = datetime.now(timezone.utc).date()
-    
+
     def _check_daily_reset(self):
         today = datetime.now(timezone.utc).date()
         if today > self.last_reset:
@@ -440,61 +440,61 @@ class RiskEngine:
             self.daily_trade_count = 0
             self.last_reset = today
             log_info("Daily risk counters reset")
-    
+
     async def validate(self, payload: WebhookPayload) -> RiskCheckResult:
         if not settings.enable_risk_engine:
             return RiskCheckResult(approved=True)
-        
+
         self._check_daily_reset()
         checks = {}
-        
+
         if not settings.trading_enabled:
             return RiskCheckResult(approved=False, reason="Trading disabled")
         checks["trading_enabled"] = True
-        
+
         if self.kill_switch_active:
             return RiskCheckResult(approved=False, reason=f"Kill switch: {self.kill_switch_reason}")
         checks["kill_switch"] = True
-        
+
         if self.daily_pnl < -settings.max_daily_loss:
             return RiskCheckResult(approved=False, reason=f"Daily loss limit: ${abs(self.daily_pnl):.2f}")
         checks["daily_loss"] = True
-        
+
         if self.daily_trade_count >= settings.max_daily_trades:
             return RiskCheckResult(approved=False, reason=f"Daily trade limit: {self.daily_trade_count}")
         checks["trade_count"] = True
-        
+
         current_position = self.positions.get(payload.ticker, 0)
         quantity = payload.quantity or settings.max_position_size
-        
+
         if payload.action == "BUY":
             new_position = current_position + quantity
         elif payload.action == "SELL":
             new_position = current_position - quantity
         else:
             new_position = 0
-        
+
         if abs(new_position) > settings.max_position_size:
             return RiskCheckResult(approved=False, reason=f"Position limit: {abs(new_position)} > {settings.max_position_size}")
         checks["position_size"] = True
-        
+
         return RiskCheckResult(approved=True, checks=checks)
-    
+
     def activate_kill_switch(self, reason: str, actor: str):
         self.kill_switch_active = True
         self.kill_switch_reason = f"[{actor}] {reason}"
         log_info("Kill switch ACTIVATED", reason=self.kill_switch_reason)
-    
+
     def deactivate_kill_switch(self, actor: str):
         self.kill_switch_active = False
         log_info("Kill switch DEACTIVATED", actor=actor)
-    
+
     def update_position(self, ticker: str, quantity_change: int):
         current = self.positions.get(ticker, 0)
         self.positions[ticker] = current + quantity_change
         if self.positions[ticker] == 0:
             del self.positions[ticker]
-    
+
     def record_trade(self):
         self.daily_trade_count += 1
 
@@ -520,14 +520,14 @@ def verify_admin_key(x_api_key: str = Header(...)):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log_info("Application starting...")
-    
+
     # Start IBKR connection in background
     if settings.enable_order_execution and not settings.dry_run:
         asyncio.create_task(ibkr_client.connect())
-    
+
     log_info("Application ready")
     yield
-    
+
     log_info("Application shutting down...")
     await ibkr_client.disconnect()
 
@@ -552,31 +552,31 @@ async def add_correlation_id(request: Request, call_next):
 @app.post("/webhook", response_model=WebhookResponse)
 async def webhook_handler(request: Request):
     correlation_id = request.state.correlation_id
-    
+
     try:
         raw_body = await request.body()
         payload_dict = json.loads(raw_body)
-        
+
         signature = payload_dict.get("signature", "")
         payload_without_sig = {k: v for k, v in payload_dict.items() if k != "signature"}
         payload_for_hmac = json.dumps(payload_without_sig, separators=(',', ':')).encode()
-        
+
         if not verify_hmac_signature(payload_for_hmac, signature, settings.webhook_secret):
             raise HTTPException(status_code=401, detail="Invalid signature")
-        
+
         payload = WebhookPayload(**payload_dict)
-        
+
         replay_guard.validate_timestamp(payload.timestamp)
         idempotency_key = replay_guard.generate_idempotency_key(
             payload.ticker, payload.action, payload.timestamp
         )
-        
+
         if replay_guard.check_duplicate(idempotency_key):
             raise HTTPException(status_code=409, detail="Duplicate webhook")
-        
+
         # Risk checks
         risk_result = await risk_engine.validate(payload)
-        
+
         if not risk_result.approved:
             await alerter.send_rejection(payload.ticker, payload.action, risk_result.reason)
             return WebhookResponse(
@@ -585,7 +585,7 @@ async def webhook_handler(request: Request):
                 message=risk_result.reason,
                 idempotency_key=idempotency_key
             )
-        
+
         # Execute order
         if settings.enable_order_execution or settings.dry_run:
             quantity = payload.quantity or settings.max_position_size
@@ -596,16 +596,16 @@ async def webhook_handler(request: Request):
                 payload.order_type,
                 payload.limit_price
             )
-            
+
             if order_result.success:
                 qty_change = quantity if payload.action == "BUY" else -quantity
                 risk_engine.update_position(payload.ticker, qty_change)
                 risk_engine.record_trade()
-                
+
                 await alerter.send_fill_alert(
                     payload.ticker, payload.action, quantity, order_result.fill_price or 0
                 )
-                
+
                 return WebhookResponse(
                     status="executed",
                     correlation_id=correlation_id,
@@ -623,7 +623,7 @@ async def webhook_handler(request: Request):
                 message="Webhook validated (execution disabled)",
                 idempotency_key=idempotency_key
             )
-    
+
     except HTTPException:
         raise
     except Exception as e:
