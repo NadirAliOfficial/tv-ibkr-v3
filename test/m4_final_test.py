@@ -45,11 +45,11 @@ ADMIN_API_KEY = config.get('ADMIN_API_KEY') or os.getenv('ADMIN_API_KEY')
 # Validate configuration
 if not WEBHOOK_SECRET or WEBHOOK_SECRET in ['CHANGE_ME_OR_TRADING_DISABLED', 'UNSAFE_DEFAULT']:
     print("❌ ERROR: WEBHOOK_SECRET not configured properly")
-    exit(1)
+    sys.exit(1)
 
 if not ADMIN_API_KEY or ADMIN_API_KEY in ['CHANGE_ME', 'UNSAFE_DEFAULT']:
     print("❌ ERROR: ADMIN_API_KEY not configured properly")
-    exit(1)
+    sys.exit(1)
 
 print(f"✅ Configuration loaded")
 print(f"   Base URL: {BASE_URL}")
